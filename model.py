@@ -1,5 +1,5 @@
 import torch 
-import torch.nn
+import torch.nn as nn
 import math
 
 
@@ -10,7 +10,7 @@ class InputEmbedding(nn.Module):
         self.vocab_size = vocab_size
         self.embedding = nn.Embedding(vocab_size,d_model)
     def forward(self,x):
-        return self.embedding(x)* math.ssqrt(self.d_model)
+        return self.embedding(x)* math.sqrt(self.d_model)
 class PositionalEncoding(nn.Module):
     def __init__(self,d_model:int,seq_len :int,dropout:float)->None:
         super().__init__()
@@ -25,7 +25,7 @@ class PositionalEncoding(nn.Module):
 
         #Create a vector of shape(seq_len)
 
-        position = torch.arrange(0,seq_len,dtype=torch.float).unsqueeze(1)
+        position = torch.arange(0,seq_len,dtype=torch.float).unsqueeze(1)
         # will get something like this  the pe as -->
         # [[0],
         #  [1],
@@ -46,11 +46,11 @@ class PositionalEncoding(nn.Module):
         x = x + (self.pe[:,:x.shape[1],:]).requires_grad_(False)
         return self.dropout(x)
 class LayerNormalization(nn.Module):
-    def __abs__(self,eps : float = 10**-6)->None:
+    def __init__(self,eps : float = 10**-6)->None:
         super().__init__()
         self.eps = eps
         self.alpha = nn.Parameter(torch.ones(1)) #Multiplied
-        self.bias = nn.Parameter(torch.zeroes(1)) #Additive
+        self.bias = nn.Parameter(torch.zeros(1)) #Additive
     def forward(self,x):
         mean = x.mean(dim = -1 ,keepdim=True)
         std = x.std(dim=-1 , keepdim = True)
@@ -209,7 +209,7 @@ class Transformer(nn.Module):
         return self.encoder(src,src_mask)
 
     def decode(self , encoder_output ,src_mask ,tgt , tgt_mask):
-        tgt = self.tgt.embed(tgt)
+        tgt = self.tgt_embed(tgt)
         tgt = self.tgt_pos(tgt)
         return self.decoder(tgt,encoder_output,src_mask,tgt_mask)
 
@@ -243,13 +243,13 @@ def build_transformer(src_vocab_size : int , tgt_vocab_size : int , src_seq_len 
         feed_forward_block = FeedForwardBlock(d_model,d_ff,dropout)
         decoder_block = DecoderBlock(deccoder_self_attention_block,decoder_cross_attention_block,feed_forward_block,dropout)
 
-        decoder_blocks.appens(deocder_block)
+        decoder_blocks.append(decoder_block)
 
 
     #Create the encoder and decoder
 
     encoder = Encoder(nn.ModuleList(encoder_blocks))
-    decoder = Decoder(nn.Module(decoder_blocks))
+    decoder = Decoder(nn.ModuleList(decoder_blocks))
 
     #create the porjection layer
 
