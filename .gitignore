@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+
+# Training outputs and checkpoints
+runs/
+*_weights/
+*.pt
+
+# Local Python environments
+.venv/
+venv/
+
+# Local tooling
+.vscode/

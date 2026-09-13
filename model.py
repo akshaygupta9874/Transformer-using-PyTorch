@@ -1,5 +1,6 @@
 import torch 
 import torch.nn as nn
+import torch.nn.functional as F
 import math
 
 
@@ -84,25 +85,13 @@ class MultiHeadAttentionBlock(nn.Module):
 
         self.dropout = nn.Dropout(dropout)
 
-    @staticmethod
-    def attention(query,key,value,mask,dropout : nn.Dropout):
-        d_k = query.shape[-1]
-    #(Batch , h,seq_len,d_k)  -> (batch,h,seq_len,seq_len)
-        attention_scores = (query @ key.transpose(-2,-1))/math.sqrt(d_k)
-
-        if mask is not None:
-            attention_scores.masked_fill_(mask==0,-1e9)
-        attention_scores = attention_scores.softmax(dim=-1) #(Batch,h,seq_len,seq_len)
-
-        if dropout is not None : 
-            attention_scores = dropout(attention_scores)
-        
-        return (attention_scores@value),attention_scores
-
     def forward(self,q,k,v,mask):
         query = self.w_q(q) #(Batch,Seq_len,d_model) --> (Batch,seq_len,d_model)
         key = self.w_k(k) #(Batch,Seq_len,d_model) --> (Batch,seq_len,d_model)
         value = self.w_v(v) #(Batch,Seq_len,d_model) --> (Batch,seq_len,d_model)
+
+        if mask is not None and mask.dtype != torch.bool:
+            mask = mask.bool()
 
 
     #(Batch,Seq_len,d_model) --> (Batch,seq_len,h,d_k) --->(Batch,h,seq_len,d_k)
@@ -112,7 +101,14 @@ class MultiHeadAttentionBlock(nn.Module):
 
         value = value.view(value.shape[0],value.shape[1],self.h,self.d_k).transpose(1,2)
 
-        x,self.attention_scores = MultiHeadAttentionBlock.attention(query,key,value,mask,self.dropout)
+        x = F.scaled_dot_product_attention(
+            query,
+            key,
+            value,
+            attn_mask=mask,
+            dropout_p=self.dropout.p if self.training else 0.0,
+        )
+        self.attention_scores = None
 
         #(Batch,h,seq_len,d_k)  ---> (bAtch , seq_len,h, d_k)---> (Batch,seq_len,d_model)
 
