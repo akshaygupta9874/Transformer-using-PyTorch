@@ -1,0 +1,49 @@
+# Modern SOTA Transformer Configuration (Part A Upgrades)
+architecture: "modern_transformer"
+d_model: 512
+encoder_layers: 6
+decoder_layers: 4
+heads: 8
+dropout: 0.1
+d_ff: 2048
+max_seq_len: 2048
+
+# Normalization & Embeddings
+norm_type: "rmsnorm"
+pos_embedding: "rope"
+ffn_type: "swiglu"
+use_gradient_checkpointing: false
+
+# High-Throughput Batching & Hardware Acceleration
+batch_size: 32
+gradient_accumulation_steps: 4
+dynamic_padding: true
+use_amp: true
+amp_dtype: "bfloat16"
+compile_model: false
+num_workers: 4
+prefetch_factor: 2
+
+# Optimization & Regularization
+optimizer: "adamw"
+lr: 3.0e-4
+lr_schedule: "cosine"
+warmup_steps: 4000
+weight_decay: 0.01
+gradient_clip_norm: 1.0
+label_smoothing: 0.1
+rdrop_alpha: 0.5
+use_ema: true
+ema_decay: 0.9999
+
+# Translation Precision & Robustness
+use_placeholders: true
+val_size_limit: 2000
+leakage_check_samples: 5000
+
+# Fast Decoding & Beam Search
+default_decoding_strategy: "fast_greedy"
+use_kv_cache: true
+beam_size: 4
+length_penalty_alpha: 0.6
+coverage_penalty_beta: 0.2

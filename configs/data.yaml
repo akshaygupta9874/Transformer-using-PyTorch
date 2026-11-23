@@ -1,0 +1,9 @@
+train_sources: [samanantar]
+frozen_test_sets: [in22_gen, in22_conv, flores200_devtest]
+cleaning:
+  min_chars: 1
+  max_chars: 1000
+  max_length_ratio: 3.0
+quality_filter:
+  labse_min_similarity: null
+  cometkiwi_min_score: null

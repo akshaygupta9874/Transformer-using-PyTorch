@@ -1,0 +1,25 @@
+name: transformer-nmt
+channels:
+  - pytorch
+  - nvidia
+  - defaults
+  - conda-forge
+dependencies:
+  - python=3.11
+  - pip
+  - pip:
+    - --extra-index-url https://download.pytorch.org/whl/cu128
+    - torch==2.11.0+cu128
+    - torchvision==0.26.0+cu128
+    - torchaudio==2.11.0+cu128
+    - torchmetrics==1.0.3
+    - tensorboard==2.13.0
+    - altair==5.1.1
+    - wandb==0.15.9
+    - tqdm==4.67.3
+    - PyYAML==6.0.3
+    - datasets==2.18.0
+    - huggingface-hub==0.24.7
+    - safetensors==0.7.0
+    - sentencepiece==0.2.2
+    - requests==2.32.5

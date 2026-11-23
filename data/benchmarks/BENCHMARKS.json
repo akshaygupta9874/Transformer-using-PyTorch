@@ -1,0 +1,20 @@
+{
+  "in22_gen": {
+    "name": "ai4bharat/IN22-Gen",
+    "rows": 3,
+    "fingerprints_count": 3,
+    "mock": true
+  },
+  "in22_conv": {
+    "name": "ai4bharat/IN22-Conv",
+    "rows": 3,
+    "fingerprints_count": 3,
+    "mock": true
+  },
+  "flores200_devtest": {
+    "name": "facebook/flores",
+    "rows": 3,
+    "fingerprints_count": 3,
+    "mock": true
+  }
+}

@@ -1,0 +1,11 @@
+seed: 13
+optimizer: adamw
+gradient_clip_norm: 1.0
+label_smoothing: 0.1
+rdrop_alpha: 0.0
+curriculum:
+  enabled: false
+  warmup_fraction: 0.25
+tracking:
+  wandb: false
+  project: en-hi-nmt

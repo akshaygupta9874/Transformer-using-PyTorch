@@ -1,0 +1,11 @@
+# Composed root configuration for English -> Hindi NMT Transformer (B0)
+defaults:
+  - model
+  - train
+  - data
+  - _self_
+
+experiment_name: "runs/upgraded_transformer"
+description: "English-Hindi NMT experimentation with 2026 upgrades"
+mode: "train"  # options: train, evaluate, profile, build_knn
+checkpoint_dir: "weights"

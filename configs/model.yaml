@@ -1,0 +1,12 @@
+# Baseline Model Configuration (Hand-written Vanilla Pre-LN Transformer)
+architecture: vanilla
+norm_type: layernorm
+pos_embedding: sinusoidal
+ffn_type: relu
+max_seq_len: 2048
+d_model: 512
+encoder_layers: 6
+decoder_layers: 4
+heads: 8
+dropout: 0.1
+d_ff: 2048

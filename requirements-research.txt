@@ -1,0 +1,12 @@
+# Optional research integrations. Install only the components needed for an experiment.
+hydra-core
+wandb
+dvc
+sacrebleu
+sentence-transformers
+unbabel-comet
+transformers
+peft
+faiss-cpu
+stanza
+onnxruntime

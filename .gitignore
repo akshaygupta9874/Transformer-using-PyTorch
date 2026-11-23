@@ -1,14 +1,177 @@
+# ==============================================================================
+# Comprehensive .gitignore for English -> Hindi Transformer NMT Project
+# Configured for portable repository transfer across training workstations & laptops
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# Python Bytecode, Compilations & Caches
+# ------------------------------------------------------------------------------
 __pycache__/
 *.py[cod]
+*$py.class
+*.so
+*.dylib
+*.dll
+*.pyd
 
-# Training outputs and checkpoints
-runs/
-*_weights/
-*.pt
-
-# Local Python environments
+# ------------------------------------------------------------------------------
+# Virtual Environments & Package Managers
+# ------------------------------------------------------------------------------
 .venv/
 venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+.conda/
+.env/
 
-# Local tooling
+# ------------------------------------------------------------------------------
+# Model Weights, Checkpoints & Export Formats
+# ------------------------------------------------------------------------------
+# Prevent committing large multi-gigabyte neural network weights
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.bin
+*.onnx
+*.state
+
+# Checkpoint directories
+weights/
+*_weights/
+ai4bharat/
+ai4bharat*/
+checkpoints/
+models_exported/
+
+# ------------------------------------------------------------------------------
+# Training Runs, Logs & Experiment Tracking
+# ------------------------------------------------------------------------------
+runs/
+logs/
+*.log
+tensorboard/
+events.out.tfevents.*
+wandb/
+.wandb/
+outputs/
+reports/
+eval_results/
+predictions/
+
+# ------------------------------------------------------------------------------
+# Datasets, Caches & Intermediate Artifacts
+# ------------------------------------------------------------------------------
+# Raw downloads, processed splits, and temporary pipeline caches
+data/raw/
+data/cache/
+data/processed/
+data/downloads/
+data/samanantar/
+data/tmp/
+
+# External framework caches
+.cache/
+.datasets/
+hf_home/
+huggingface/
+.cache/huggingface/
+.cache/torch/
+torch_extensions/
+
+# Large binary / tabular data dumps
+*.arrow
+*.parquet
+*.npy
+*.npz
+*.tar
+*.tar.gz
+*.tgz
+*.zip
+*.gz
+
+# kNN MT FAISS datastores
+*.faiss
+*.index
+data/knn/
+knn_datastore/
+
+# Preserve benchmark references and documentation in data/
+!data/benchmarks/
+!data/benchmarks/*
+!data/DATASHEET.md
+!data/tokenizers/
+!data/tokenizers/*.json
+
+# Legacy unversioned root-level tokenizers (do not re-introduce)
+tokenizer_en.json
+tokenizer_it.json
+
+# ------------------------------------------------------------------------------
+# Testing, Coverage & Profiling
+# ------------------------------------------------------------------------------
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+profiling/
+*.prof
+*.pstats
+
+# ------------------------------------------------------------------------------
+# Packaging & Build Distribution
+# ------------------------------------------------------------------------------
+build/
+dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# ------------------------------------------------------------------------------
+# Jupyter Notebooks & Temporary Scratch Files
+# ------------------------------------------------------------------------------
+.ipynb_checkpoints/
+*-checkpoint.ipynb
+tmp/
+temp/
+scratch/
+*.tmp
+*.temp
+*.bak
+
+# ------------------------------------------------------------------------------
+# Operating System & IDE Artifacts
+# ------------------------------------------------------------------------------
+# Windows
+[Dd]esktop.ini
+[Tt]humbs.db
+[Tt]humbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+$RECYCLE.BIN/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Linux / General
+*~
+.fuse_hidden*
+.directory
+
+# IDEs / Editors
 .vscode/
+.idea/
+*.code-workspace
+*.sublime-project
+*.sublime-workspace
+*.swp
+*.swo
