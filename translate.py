@@ -47,7 +47,10 @@ def load_model(config, tokenizer_src, tokenizer_tgt, device, checkpoint_path=Non
         )
 
     state = torch.load(model_filename, map_location=device, weights_only=False)
-    weights = state.get("ema_state_dict") if (config.get("use_ema") and state.get("ema_state_dict")) else state["model_state_dict"]
+    weights = state["model_state_dict"]
+    ema_weights = state.get("ema_state_dict")
+    if config.get("use_ema") and ema_weights:
+        weights = {**weights, **ema_weights}
     model.load_state_dict(weights)
     model.eval()
     print(f"Loaded checkpoint: {model_filename}")

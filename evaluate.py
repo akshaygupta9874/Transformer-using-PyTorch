@@ -6,14 +6,14 @@ import argparse
 import json
 from pathlib import Path
 
+from click import command
+
 from research.evaluation import (
     comprehensive_error_taxonomy,
     paired_bootstrap_corpus,
     paired_bootstrap_sentence,
     score_corpus,
 )
-
-
 def read_lines(path: Path) -> list[str]:
     return path.read_text(encoding="utf-8").splitlines()
 
