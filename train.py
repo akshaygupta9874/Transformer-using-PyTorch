@@ -577,5 +577,11 @@ def train_model(config):
 
 if __name__ == '__main__':
     warnings.filterwarnings("ignore")
-    config = get_config()
+    import sys
+    try:
+        from run_experiment import compose_config
+        cli_args = [arg.lstrip("-") for arg in sys.argv[1:]]
+        config = compose_config(cli_args) if cli_args else get_config()
+    except Exception:
+        config = get_config()
     train_model(config)

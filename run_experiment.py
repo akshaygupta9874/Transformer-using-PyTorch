@@ -65,6 +65,7 @@ def parse_scalar(val: str) -> Any:
 
 def compose_config(cli_args: list[str]) -> dict:
     """Compose default config from config.py and configs/*.yaml with CLI overrides."""
+    cli_args = [arg.lstrip("-") for arg in cli_args]
     config = get_config()
     configs_dir = Path("configs")
 
@@ -91,11 +92,14 @@ def compose_config(cli_args: list[str]) -> dict:
                 config[k] = v
 
     # Apply CLI dot-separated key=value overrides
-    for arg in cli_args:
+    for raw_arg in cli_args:
+        arg = raw_arg.lstrip("-")
         if "=" not in arg:
             continue
         key, val = arg.split("=", 1)
         key = key.strip()
+        if key == "rdrop":
+            key = "rdrop_alpha"
         parsed_val = parse_scalar(val)
 
         if "." in key:
@@ -157,7 +161,7 @@ def run_profiling(config: dict) -> None:
 
 
 def main() -> None:
-    cli_args = [arg for arg in sys.argv[1:] if not arg.startswith("--")]
+    cli_args = [arg.lstrip("-") for arg in sys.argv[1:]]
     config = compose_config(cli_args)
     seed = config.get("seed", 13)
     seed_everything(seed)
