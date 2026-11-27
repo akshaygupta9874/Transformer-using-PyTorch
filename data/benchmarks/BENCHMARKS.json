@@ -1,20 +1,11 @@
 {
-  "in22_gen": {
-    "name": "ai4bharat/IN22-Gen",
-    "rows": 3,
-    "fingerprints_count": 3,
-    "mock": true
-  },
-  "in22_conv": {
-    "name": "ai4bharat/IN22-Conv",
-    "rows": 3,
-    "fingerprints_count": 3,
-    "mock": true
-  },
   "flores200_devtest": {
-    "name": "facebook/flores",
-    "rows": 3,
-    "fingerprints_count": 3,
-    "mock": true
+    "name": "Muennighoff/flores200",
+    "config": "eng_Latn-hin_Deva",
+    "split": "devtest",
+    "rows": 1012,
+    "fingerprints_count": 1012,
+    "fetched_at": "2026-11-27T18:04:06.900332+00:00",
+    "license": "Frozen research benchmark (CC-BY-SA 4.0)"
   }
 }
