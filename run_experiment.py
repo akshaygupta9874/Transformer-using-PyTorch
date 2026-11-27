@@ -82,7 +82,15 @@ def compose_config(cli_args: list[str]) -> dict:
                 config[k] = v
 
     # If modern ablation is selected via CLI args or explicit config, merge modern.yaml
-    is_modern = any("modern_transformer" in arg or "ablation=modern" in arg or arg == "modern" or "model=modern" in arg for arg in cli_args) or config.get("architecture") == "modern_transformer"
+    is_modern = (
+        any(
+            arg in ("modern", "modern.yaml", "configs/modern.yaml")
+            or "modern_transformer" in arg
+            or arg in ("ablation=modern", "model=modern", "architecture=modern", "config=modern")
+            for arg in cli_args
+        )
+        or config.get("architecture") == "modern_transformer"
+    )
     if is_modern:
         modern_cfg = load_yaml(configs_dir / "modern.yaml")
         for k, v in modern_cfg.items():
@@ -101,6 +109,8 @@ def compose_config(cli_args: list[str]) -> dict:
         if key == "rdrop":
             key = "rdrop_alpha"
         parsed_val = parse_scalar(val)
+        if key == "architecture" and parsed_val == "modern":
+            parsed_val = "modern_transformer"
 
         if "." in key:
             parts = key.split(".")
@@ -135,6 +145,11 @@ def run_profiling(config: dict) -> None:
             decoder_layers=config.get("decoder_layers", 4),
             heads=config.get("heads", 8),
             d_ff=config.get("d_ff", 2048),
+            max_seq_len=config.get("max_seq_len", 2048),
+            use_qk_norm=config.get("use_qk_norm", True),
+            tie_embeddings=config.get("tie_embeddings", False),
+            kv_heads=config.get("kv_heads"),
+            encoder_d_ff=config.get("encoder_d_ff"),
         ).to(device)
     else:
         from model import build_transformer
@@ -171,7 +186,7 @@ def main() -> None:
     write_run_manifest(exp_name, mode, config, seed)
 
     print(f"Experiment initialized: mode='{mode}', seed={seed}")
-    print(f"Config: encoder_layers={config.get('encoder_layers')}, decoder_layers={config.get('decoder_layers')}, rdrop={config.get('rdrop_alpha')}")
+    print(f"Config: architecture={config.get('architecture')}, encoder_layers={config.get('encoder_layers')}, decoder_layers={config.get('decoder_layers')}, rdrop={config.get('rdrop_alpha')}")
 
     if mode == "profile":
         run_profiling(config)

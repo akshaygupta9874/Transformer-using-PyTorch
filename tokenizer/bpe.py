@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import heapq
 from pathlib import Path
+import random
 import unicodedata
 from collections import Counter, defaultdict
 from dataclasses import dataclass
@@ -170,6 +171,58 @@ def lattice_shortest_path(s: str, vocab, max_len: int) -> Tuple[List[str], int]:
         i = j
     chunks.reverse()
     return chunks, cost[n]
+
+
+def lattice_encode(
+    units: Sequence[str],
+    vocab: Dict[str, int],
+    max_units: int = 8,
+    p: float = 0.0,
+    rng: Optional[random.Random] = None,
+    atomic_prefix: str = "⟨",
+) -> List[int]:
+    """Akshara-aware lattice shortest-path encoding with optional multi-unit dropout.
+
+    When p > 0, each multi-unit edge is independently dropped with probability p while
+    single-unit and byte-fallback edges are never dropped, preserving totality and Akshara boundaries.
+    """
+    n = len(units)
+    if n == 0:
+        return []
+    if p > 0.0 and rng is None:
+        rng = random.Random()
+    inf = 1 << 60
+    best = [inf] * (n + 1)
+    best[0] = 0
+    back: List[Optional[Tuple[int, List[int]]]] = [None] * (n + 1)
+    for i in range(n):
+        if best[i] == inf:
+            continue
+        piece = ""
+        for j in range(i + 1, min(n, i + max_units) + 1):
+            piece += units[j - 1]
+            tid = vocab.get(piece)
+            if tid is not None:
+                if j - i > 1 and p > 0.0 and not piece.startswith(atomic_prefix) and rng.random() < p:
+                    continue
+                ids, c = [tid], 1
+            elif j - i == 1:
+                ids = [vocab[f"<0x{b:02X}>"] for b in piece.encode("utf-8", "surrogatepass")]
+                c = len(ids)
+            else:
+                continue
+            if best[i] + c < best[j]:
+                best[j] = best[i] + c
+                back[j] = (i, ids)
+    out: List[int] = []
+    j = n
+    while j > 0:
+        step = back[j]
+        assert step is not None
+        i, ids = step
+        out[:0] = ids
+        j = i
+    return out
 
 
 @dataclass

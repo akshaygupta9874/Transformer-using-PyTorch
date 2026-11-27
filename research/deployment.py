@@ -96,22 +96,39 @@ def benchmark_inference(
 
     latencies = []
     total_generated_tokens = 0
+    use_kv_cache = hasattr(model, "rope")
 
     with torch.no_grad():
         for _ in range(repeats):
             start = time.perf_counter()
-            enc_out = model.encode(sample_encoder_input, sample_encoder_mask)
-            dec_in = torch.tensor([[2]], dtype=torch.long, device=device)
-            for _ in range(max_decode_len):
-                mask = causal_mask(dec_in.size(1)).to(device)
-                out = model.decode(enc_out, sample_encoder_mask, dec_in, mask)
-                next_tok = model.project(out[:, -1]).argmax(dim=-1, keepdim=True)
-                dec_in = torch.cat([dec_in, next_tok], dim=1)
-                if next_tok.item() == 3:  # EOS
-                    break
+            if use_kv_cache:
+                from research.fast_decoding import fast_greedy_decode
+                generated = fast_greedy_decode(
+                    model,
+                    sample_encoder_input,
+                    sample_encoder_mask,
+                    sos_id=2,
+                    eos_id=3,
+                    max_len=max_decode_len,
+                    device=device,
+                )
+                gen_len = len(generated)
+            else:
+                enc_out = model.encode(sample_encoder_input, sample_encoder_mask)
+                dec_in = torch.tensor([[2]], dtype=torch.long, device=device)
+                for _ in range(max_decode_len):
+                    mask = causal_mask(dec_in.size(1)).to(device)
+                    out = model.decode(enc_out, sample_encoder_mask, dec_in, mask)
+                    next_tok = model.project(out[:, -1]).argmax(dim=-1, keepdim=True)
+                    dec_in = torch.cat([dec_in, next_tok], dim=1)
+                    if next_tok.item() == 3:  # EOS
+                        break
+                gen_len = dec_in.size(1)
+            if device.type == "cuda":
+                torch.cuda.synchronize(device)
             elapsed = time.perf_counter() - start
             latencies.append(elapsed)
-            total_generated_tokens += dec_in.size(1)
+            total_generated_tokens += gen_len
 
     mean_sec = sum(latencies) / len(latencies)
     total_time = sum(latencies)

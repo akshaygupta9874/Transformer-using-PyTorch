@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import random
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 from .akshara import AksharaSegmenter, Pretokenizer
@@ -291,16 +292,27 @@ class Tokenizer:
             syms.extend(self.shortest_path_ids(s))
         return syms
 
-    def _apply_bpe(self, syms: List[int]) -> List[int]:
+    def _apply_bpe(
+        self,
+        syms: List[int],
+        dropout_p: float = 0.0,
+        rng: Optional[random.Random] = None,
+    ) -> List[int]:
         rank = self.merge_rank
         if not rank:
             return syms
+        use_dropout = dropout_p > 0.0
+        if use_dropout and rng is None:
+            rng = random.Random()
         while len(syms) > 1:
             best = None
             for k in range(len(syms) - 1):
                 r = rank.get((syms[k], syms[k + 1]))
-                if r is not None and (best is None or r[0] < best[0]):
-                    best = (r[0], syms[k], syms[k + 1], r[1])
+                if r is not None:
+                    if use_dropout and rng.random() < dropout_p:
+                        continue
+                    if best is None or r[0] < best[0]:
+                        best = (r[0], syms[k], syms[k + 1], r[1])
             if best is None:
                 break
             _, a, b, new = best
@@ -316,20 +328,36 @@ class Tokenizer:
             syms = out
         return syms
 
-    def _encode_word(self, word: str) -> Tuple[int, ...]:
-        hit = self._word_cache.get(word)
-        if hit is None:
-            hit = tuple(self._apply_bpe(self.word_to_base_ids(word)))
-            if len(self._word_cache) < 500_000:
-                self._word_cache[word] = hit
-        return hit
+    def _encode_word(
+        self,
+        word: str,
+        dropout_p: float = 0.0,
+        rng: Optional[random.Random] = None,
+    ) -> Tuple[int, ...]:
+        if dropout_p <= 0.0:
+            hit = self._word_cache.get(word)
+            if hit is None:
+                hit = tuple(self._apply_bpe(self.word_to_base_ids(word)))
+                if len(self._word_cache) < 500_000:
+                    self._word_cache[word] = hit
+            return hit
+        return tuple(self._apply_bpe(self.word_to_base_ids(word), dropout_p=dropout_p, rng=rng))
 
-    def encode(self, text: str, add_bos: bool = False, add_eos: bool = False) -> Encoding:
+    def encode(
+        self,
+        text: str,
+        add_bos: bool = False,
+        add_eos: bool = False,
+        dropout_p: float = 0.0,
+        rng: Optional[random.Random] = None,
+    ) -> Encoding:
         n = self.normalize(text)
         ids: List[int] = [BOS_ID] if add_bos else []
         if n:
+            if dropout_p > 0.0 and rng is None:
+                rng = random.Random()
             for w in n.split(" "):
-                ids.extend(self._encode_word(w))
+                ids.extend(self._encode_word(w, dropout_p=dropout_p, rng=rng))
         if add_eos:
             ids.append(EOS_ID)
         return Encoding(ids=ids, tokens=self.ids_to_tokens(ids), normalized=n)
@@ -503,3 +531,8 @@ def audit_round_trip_safety(
         "pass_rate_percentage": round((passed / total * 100.0) if total else 100.0, 2),
         "failures": failures,
     }
+
+
+def load_tokenizer(path: str) -> Tokenizer:
+    """Load a Tokenizer instance from a JSON file path."""
+    return Tokenizer.from_file(path)

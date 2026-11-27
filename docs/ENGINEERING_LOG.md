@@ -1029,4 +1029,33 @@ Every future entry in this log adheres to the following structure:
 ### 4. Future Scope & Research Directions
 - Run comparative BLEU evaluation of modern Transformer vs vanilla baseline on IN22-Gen benchmark after a 200k-pair training run.
 
+---
+
+## [Entry 026] — Checkpoint Architecture/Vocabulary Compatibility Guard & CLI Normalization
+- **Date**: 2026-11-25
+- **Status**: Completed & Verified (All 102/102 Tests Passed)
+
+### 1. The Problem
+- When `preload: "latest"` is active in [config.py](file:///c:/Users/aksha/OneDrive/Desktop/Transformer%20using%20PyTorch/config.py) and an older checkpoint exists in `ai4bharat/samanantar_weights/` (e.g., an earlier `vanilla` run trained with a `20,268`-token Hindi tokenizer), starting a run with a newly built `40,000`-token tokenizer or a different architecture (`modern_transformer`) crashed inside `model.load_state_dict(...)` with an opaque tensor shape `RuntimeError`.
+- In addition, `torch.load(model_filename)` omitted `map_location=device` and `weights_only=False`, risking device allocation overhead and PyTorch 2.6+ pickle failures on metadata-rich checkpoints.
+- Passing shorthand `architecture=modern` or `config=modern` in [run_experiment.py](file:///c:/Users/aksha/OneDrive/Desktop/Transformer%20using%20PyTorch/run_experiment.py) did not map cleanly to `architecture="modern_transformer"`, and the startup banner did not log which architecture was active.
+
+### 2. Changes Made
+- **[train.py](file:///c:/Users/aksha/OneDrive/Desktop/Transformer%20using%20PyTorch/train.py)**:
+  - Added `validate_checkpoint_compatibility(state, config, vocab_src_size, vocab_tgt_size, checkpoint_path)` to inspect checkpoint metadata (with shape/key fallback inference for legacy checkpoints) and raise a clear, actionable `RuntimeError` detailing checkpoint vs. current architecture/vocabulary and suggesting `model_folder=modern_weights` or clearing stale `.pt` files.
+  - Updated `train_model` checkpoint loading to pass `map_location=device, weights_only=False` and normalize string `"none"`/`"null"`/`"false"` preload flags.
+- **[run_experiment.py](file:///c:/Users/aksha/OneDrive/Desktop/Transformer%20using%20PyTorch/run_experiment.py)**:
+  - Extended `compose_config` to recognize `architecture=modern`, `config=modern`, and `modern.yaml` and normalize `architecture="modern"` to `"modern_transformer"`.
+  - Updated startup output to explicitly print `architecture=...`.
+- **[research/tests/test_modern.py](file:///c:/Users/aksha/OneDrive/Desktop/Transformer%20using%20PyTorch/research/tests/test_modern.py)**:
+  - Added `test_checkpoint_compatibility_validation` verifying matching checkpoints pass, vocab mismatches (`20268` vs `40000`) fail with explicit diagnostics, legacy weight-only checkpoints infer `vanilla` vs `modern_transformer`, and `compose_config(["architecture=modern"])` resolves `"modern_transformer"`.
+
+### 3. How the Problem Was Solved
+- Checkpoint preloading now immediately detects stale-tokenizer (`20268` vs `40000`) and cross-architecture (`vanilla` vs `modern_transformer`) collisions before `load_state_dict`, telling the user the exact cause and fix.
+- Full test suite verified after the final edit: **102 / 102 unit tests passing** (`47` in `research/tests/`, `55` in `tokenizer/tests/`).
+
+### 4. Future Scope & Research Directions
+- Consider defaulting `configs/modern.yaml` checkpoints into a separate directory only after active baseline migration is complete, or adding a `--fresh` CLI shortcut that cleanly sets `preload=none` when desired.
+
+
 

@@ -14,32 +14,6 @@ from research.knn_mt import KNNMTDatastore, KNNMTDecoder
 
 
 def load_model(config, tokenizer_src, tokenizer_tgt, device, checkpoint_path=None):
-    if config.get("architecture") == "modern_transformer":
-        from modern_model import build_modern_transformer
-        model = build_modern_transformer(
-            tokenizer_src.get_vocab_size(),
-            tokenizer_tgt.get_vocab_size(),
-            d_model=config["d_model"],
-            encoder_layers=config.get("encoder_layers", 6),
-            decoder_layers=config.get("decoder_layers", 4),
-            heads=config.get("heads", 8),
-            d_ff=config.get("d_ff", 2048),
-            dropout=config.get("dropout", 0.1),
-        ).to(device)
-    else:
-        model = build_transformer(
-            tokenizer_src.get_vocab_size(),
-            tokenizer_tgt.get_vocab_size(),
-            config["seq_len"],
-            config["seq_len"],
-            d_model=config["d_model"],
-            h=config.get("heads", 8),
-            dropout=config.get("dropout", 0.1),
-            d_ff=config.get("d_ff", 2048),
-            encoder_layers=config.get("encoder_layers"),
-            decoder_layers=config.get("decoder_layers"),
-        ).to(device)
-
     model_filename = checkpoint_path or latest_weights_file_path(config)
     if model_filename is None:
         raise FileNotFoundError(
@@ -47,13 +21,57 @@ def load_model(config, tokenizer_src, tokenizer_tgt, device, checkpoint_path=Non
         )
 
     state = torch.load(model_filename, map_location=device, weights_only=False)
+    ckpt_cfg = state.get("config") or {}
+    model_sd = state.get("model_state_dict") or {}
+    ckpt_arch = ckpt_cfg.get("architecture")
+    if ckpt_arch is None and model_sd:
+        ckpt_arch = "modern_transformer" if any(k.startswith("rope.") or k.startswith("encoder_blocks.") for k in model_sd) else "vanilla"
+
+    arch = ckpt_arch or config.get("architecture", "vanilla")
+    effective_cfg = {**ckpt_cfg, **config, "architecture": arch}
+
+    if arch == "modern_transformer":
+        from modern_model import build_modern_transformer
+        use_qk_norm = ckpt_cfg.get("use_qk_norm", any(".q_norm." in k for k in model_sd))
+        tie_embeddings = ckpt_cfg.get("tie_embeddings", effective_cfg.get("tie_embeddings", False))
+        kv_heads = ckpt_cfg.get("kv_heads", effective_cfg.get("kv_heads"))
+        encoder_d_ff = ckpt_cfg.get("encoder_d_ff", effective_cfg.get("encoder_d_ff"))
+        model = build_modern_transformer(
+            tokenizer_src.get_vocab_size(),
+            tokenizer_tgt.get_vocab_size(),
+            d_model=effective_cfg["d_model"],
+            encoder_layers=effective_cfg.get("encoder_layers", 6),
+            decoder_layers=effective_cfg.get("decoder_layers", 4),
+            heads=effective_cfg.get("heads", 8),
+            d_ff=effective_cfg.get("d_ff", 2048),
+            dropout=effective_cfg.get("dropout", 0.1),
+            max_seq_len=effective_cfg.get("max_seq_len", 2048),
+            use_qk_norm=use_qk_norm,
+            tie_embeddings=tie_embeddings,
+            kv_heads=kv_heads,
+            encoder_d_ff=encoder_d_ff,
+        ).to(device)
+    else:
+        model = build_transformer(
+            tokenizer_src.get_vocab_size(),
+            tokenizer_tgt.get_vocab_size(),
+            effective_cfg["seq_len"],
+            effective_cfg["seq_len"],
+            d_model=effective_cfg["d_model"],
+            h=effective_cfg.get("heads", 8),
+            dropout=effective_cfg.get("dropout", 0.1),
+            d_ff=effective_cfg.get("d_ff", 2048),
+            encoder_layers=effective_cfg.get("encoder_layers"),
+            decoder_layers=effective_cfg.get("decoder_layers"),
+        ).to(device)
+
     weights = state["model_state_dict"]
     ema_weights = state.get("ema_state_dict")
-    if config.get("use_ema") and ema_weights:
+    if effective_cfg.get("use_ema") and ema_weights:
         weights = {**weights, **ema_weights}
     model.load_state_dict(weights)
     model.eval()
-    print(f"Loaded checkpoint: {model_filename}")
+    print(f"Loaded checkpoint: {model_filename} (architecture={arch})")
     return model
 
 
@@ -79,8 +97,8 @@ def get_sentence_from_dataset(config, tokenizer_src, tokenizer_tgt, index):
 def translate(
     sentence,
     config=None,
-    strategy="greedy",
-    beam_size=4,
+    strategy=None,
+    beam_size=None,
     mbr_samples=16,
     knn_datastore_path=None,
     knn_lambda=0.2,
@@ -88,12 +106,21 @@ def translate(
     checkpoint_path=None,
 ):
     config = config or get_config()
+    if strategy is None:
+        strategy = config.get("default_decoding_strategy", "greedy")
+    if beam_size is None:
+        beam_size = config.get("beam_size", 4)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device} | Strategy: {strategy}")
 
     tokenizer_src = Tokenizer.load(get_tokenizer_path(config, config["lang_src"]))
     tokenizer_tgt = Tokenizer.load(get_tokenizer_path(config, config["lang_tgt"]))
     model = load_model(config, tokenizer_src, tokenizer_tgt, device, checkpoint_path=checkpoint_path)
+
+    grammar_mask = None
+    if config.get("use_grammar_mask", True) and hasattr(tokenizer_tgt, "tokens"):
+        from tokenizer.grammar_mask import DevanagariGrammarMask
+        grammar_mask = DevanagariGrammarMask(tokenizer_tgt)
 
     expected_translation = None
     if isinstance(sentence, int) or str(sentence).isdigit():
@@ -146,14 +173,26 @@ def translate(
             predicted_translation = tokenizer_tgt.decode(output_tokens)
 
         elif strategy == "mbr":
-            predicted_translation = mbr_decode(
-                model,
-                source,
-                source_mask,
-                tokenizer_tgt,
-                num_samples=mbr_samples,
-                max_len=config["seq_len"],
-            )
+            if hasattr(model, "rope"):
+                from research.fast_decoding import fast_mbr_decode
+                predicted_translation = fast_mbr_decode(
+                    model,
+                    source,
+                    source_mask,
+                    tokenizer_tgt,
+                    num_samples=mbr_samples,
+                    max_len=config["seq_len"],
+                    grammar_mask=grammar_mask,
+                )
+            else:
+                predicted_translation = mbr_decode(
+                    model,
+                    source,
+                    source_mask,
+                    tokenizer_tgt,
+                    num_samples=mbr_samples,
+                    max_len=config["seq_len"],
+                )
 
         elif strategy == "knn":
             if not knn_datastore_path or not Path(knn_datastore_path).exists():
@@ -191,6 +230,7 @@ def translate(
                 eos_id=target_eos_id,
                 max_len=config["seq_len"],
                 device=device,
+                grammar_mask=grammar_mask,
             )
             predicted_translation = tokenizer_tgt.decode(output_tokens)
 
@@ -204,7 +244,10 @@ def translate(
                 eos_id=target_eos_id,
                 beam_size=beam_size,
                 max_len=config["seq_len"],
+                alpha=config.get("length_penalty_alpha", 0.6),
+                coverage_beta=config.get("coverage_penalty_beta", 0.2),
                 device=device,
+                grammar_mask=grammar_mask,
             )
             predicted_translation = tokenizer_tgt.decode(output_tokens)
 
@@ -246,17 +289,24 @@ def main():
         default="I am not a very good student.",
         help="Text to translate, or a training-dataset index.",
     )
-    parser.add_argument("--strategy", choices=["greedy", "beam", "mbr", "knn", "fast_greedy", "fast_beam"], default="greedy")
-    parser.add_argument("--beam-size", type=int, default=4)
+    parser.add_argument("--modern", action="store_true", help="Load modern transformer config (configs/modern.yaml)")
+    parser.add_argument("--strategy", choices=["greedy", "beam", "mbr", "knn", "fast_greedy", "fast_beam"], default=None)
+    parser.add_argument("--beam-size", type=int, default=None)
     parser.add_argument("--mbr-samples", type=int, default=16)
     parser.add_argument("--knn-datastore", type=Path, default=None)
     parser.add_argument("--knn-lambda", type=float, default=0.2)
     parser.add_argument("--knn-k", type=int, default=8)
     parser.add_argument("--checkpoint", type=str, default=None)
     args = parser.parse_args()
-    
+
+    cfg = None
+    if args.modern:
+        from run_experiment import compose_config
+        cfg = compose_config(["architecture=modern_transformer"])
+
     translate(
         args.sentence,
+        config=cfg,
         strategy=args.strategy,
         beam_size=args.beam_size,
         mbr_samples=args.mbr_samples,

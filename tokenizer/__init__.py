@@ -2,7 +2,7 @@ from .akshara import (
     AksharaSegmenter, Pretokenizer, char_class, is_dev, script_of,
 )
 from .bpe import (
-    BPETrainer, TrainerConfig, ClosureSet, build_closure, lattice_shortest_path,
+    BPETrainer, TrainerConfig, ClosureSet, build_closure, lattice_shortest_path, lattice_encode,
     BudgetUtilizationReport, load_benchmark_sentences, compute_fertility,
 )
 from .grammar_mask import DevanagariGrammarMask, ALLOW
@@ -10,7 +10,7 @@ from .normalizer import (
     DevanagariNormalizer, unify_brahmic_script, PLACEHOLDER_RE, WORD_MARK, ZWJ, ZWNJ, VIRAMA, NUKTA,
 )
 from .serializer import TokenizerSerializer
-from .tokenizer import Tokenizer, Encoding, audit_round_trip_safety
+from .tokenizer import Tokenizer, Encoding, audit_round_trip_safety, load_tokenizer
 from .validator import TokenizerValidationError, validate_tokenizer_metadata
 
 __all__ = [
@@ -21,6 +21,7 @@ __all__ = [
     "ClosureSet",
     "build_closure",
     "lattice_shortest_path",
+    "lattice_encode",
     "BudgetUtilizationReport",
     "load_benchmark_sentences",
     "compute_fertility",
@@ -37,6 +38,7 @@ __all__ = [
     "Tokenizer",
     "Encoding",
     "audit_round_trip_safety",
+    "load_tokenizer",
     "TokenizerSerializer",
     "TokenizerValidationError",
     "validate_tokenizer_metadata",

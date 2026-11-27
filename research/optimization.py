@@ -5,23 +5,27 @@ from __future__ import annotations
 import copy
 import math
 from pathlib import Path
-from typing import Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Sequence
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.optim.lr_scheduler import LambdaLR
 
 
 class ModelEMA:
-    """Exponential Moving Average (EMA) of model parameters.
+    """Exponential Moving Average (EMA) of model parameters with warmup ramp.
     
     Stabilizes training and consistently improves translation quality by +0.5 to +1.5 BLEU.
-    theta_ema = beta * theta_ema + (1 - beta) * theta
+    Uses dynamic decay min(decay, (1 + step) / (10 + step)) so early epochs track rapidly
+    before annealing to the target decay.
     """
 
-    def __init__(self, model: nn.Module, decay: float = 0.9999):
+    def __init__(self, model: nn.Module, decay: float = 0.9999, warmup_ramp: bool = True):
         self.model = model
         self.decay = decay
+        self.warmup_ramp = warmup_ramp
+        self.num_updates = 0
         self.shadow: Dict[str, torch.Tensor] = {}
         self.backup: Dict[str, torch.Tensor] = {}
 
@@ -30,13 +34,20 @@ class ModelEMA:
             if param.requires_grad:
                 self.shadow[name] = param.data.clone().detach()
 
+    def get_decay(self) -> float:
+        """Compute current effective EMA decay."""
+        if self.warmup_ramp:
+            return min(self.decay, (1.0 + self.num_updates) / (10.0 + self.num_updates))
+        return self.decay
+
     def update(self) -> None:
         """Update shadow weights with current model parameters."""
-        for name, param in self.model.named_parameters():
-            if param.requires_grad:
-                assert name in self.shadow
-                new_average = (1.0 - self.decay) * param.data + self.decay * self.shadow[name]
-                self.shadow[name] = new_average.clone()
+        decay = self.get_decay()
+        with torch.no_grad():
+            for name, param in self.model.named_parameters():
+                if param.requires_grad and name in self.shadow:
+                    self.shadow[name].mul_(decay).add_(param.data, alpha=1.0 - decay)
+        self.num_updates += 1
 
     def apply_shadow(self) -> None:
         """Backup model weights and load EMA shadow weights for validation/inference."""
@@ -56,16 +67,36 @@ class ModelEMA:
     def state_dict(self) -> Dict[str, torch.Tensor]:
         return {k: v.clone() for k, v in self.shadow.items()}
 
-    def load_state_dict(self, state_dict: Dict[str, torch.Tensor]) -> None:
+    def load_state_dict(self, state_dict: Dict[str, torch.Tensor], num_updates: Optional[int] = None) -> None:
         for k, v in state_dict.items():
-            self.shadow[k] = v.clone()
+            if k in self.shadow:
+                self.shadow[k] = v.clone().to(self.shadow[k].device, dtype=self.shadow[k].dtype)
+        if num_updates is not None:
+            self.num_updates = max(0, int(num_updates))
 
 
 class CheckpointAverager:
     """Averages model parameters across the top-k or last-k checkpoints."""
 
     @staticmethod
-    def average_checkpoints(checkpoint_paths: List[str | Path], output_path: str | Path) -> None:
+    def _average_tensor_dicts(dicts: List[Dict[str, torch.Tensor]]) -> Dict[str, torch.Tensor]:
+        avg_state: Dict[str, torch.Tensor] = {}
+        num = len(dicts)
+        for state_dict in dicts:
+            for key, val in state_dict.items():
+                if not isinstance(val, torch.Tensor):
+                    continue
+                if val.dtype.is_floating_point:
+                    if key not in avg_state:
+                        avg_state[key] = val.clone().float() / num
+                    else:
+                        avg_state[key] += val.float() / num
+                else:
+                    avg_state[key] = val.clone()
+        return avg_state
+
+    @staticmethod
+    def average_checkpoints(checkpoint_paths: List[str | Path], output_path: str | Path) -> Path:
         if not checkpoint_paths:
             raise ValueError("Need at least one checkpoint to average.")
 
@@ -73,28 +104,54 @@ class CheckpointAverager:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         print(f"Averaging {len(checkpoint_paths)} checkpoints...")
 
-        avg_state = {}
-        num_checkpoints = len(checkpoint_paths)
+        model_dicts: List[Dict[str, torch.Tensor]] = []
+        ema_dicts: List[Dict[str, torch.Tensor]] = []
+        base_cp = None
 
-        for i, cp_path in enumerate(checkpoint_paths):
+        for cp_path in checkpoint_paths:
             cp = torch.load(cp_path, map_location="cpu", weights_only=False)
-            state_dict = cp.get("model_state_dict", cp)
+            base_cp = cp
+            model_dicts.append(cp.get("model_state_dict", cp))
+            if isinstance(cp, dict) and isinstance(cp.get("ema_state_dict"), dict):
+                ema_dicts.append(cp["ema_state_dict"])
 
-            for key, val in state_dict.items():
-                if val.dtype.is_floating_point:
-                    if key not in avg_state:
-                        avg_state[key] = val.clone().float() / num_checkpoints
-                    else:
-                        avg_state[key] += val.float() / num_checkpoints
-                else:
-                    avg_state[key] = val.clone()
+        avg_state = CheckpointAverager._average_tensor_dicts(model_dicts)
+        avg_ema = (
+            CheckpointAverager._average_tensor_dicts(ema_dicts)
+            if len(ema_dicts) == len(checkpoint_paths)
+            else None
+        )
 
-        # Save averaged checkpoint
-        base_cp = torch.load(checkpoint_paths[-1], map_location="cpu", weights_only=False)
+        # Save averaged checkpoint preserving metadata
+        assert base_cp is not None
         base_cp["model_state_dict"] = avg_state
+        if "ema_state_dict" in base_cp:
+            base_cp["ema_state_dict"] = avg_ema
         base_cp["averaged_from"] = [str(p) for p in checkpoint_paths]
         torch.save(base_cp, output_path)
         print(f"Saved averaged checkpoint to {output_path}")
+        return output_path
+
+    @staticmethod
+    def average_last_k(
+        checkpoint_dir: str | Path,
+        k: int = 5,
+        pattern: str = "tmodel_*.pt",
+        output_path: Optional[str | Path] = None,
+    ) -> Optional[Path]:
+        """Average the last k epoch checkpoints in checkpoint_dir (excluding averaged artifacts)."""
+        ckpt_dir = Path(checkpoint_dir)
+        if not ckpt_dir.exists():
+            return None
+        candidates = sorted(
+            p for p in ckpt_dir.glob(pattern)
+            if "avg" not in p.stem.lower()
+        )
+        if not candidates:
+            return None
+        selected = candidates[-max(1, k):]
+        target_out = Path(output_path) if output_path else (ckpt_dir / f"tmodel_avg_last{len(selected)}.pt")
+        return CheckpointAverager.average_checkpoints(selected, target_out)
 
 
 class MinimumRiskTrainingLoss(nn.Module):
@@ -367,3 +424,89 @@ def compare_label_smoothing(
             "target_confidence": 1.0 - eps,
         }
     return results
+
+
+from research.chunked_losses import (
+    _ChunkedLinearCE,
+    _ChunkedRDrop,
+    chunked_cross_entropy,
+    chunked_rdrop_loss,
+    chunked_nll_sum,
+    chunked_token_logprobs,
+)
+
+
+def _chrf_score_fn() -> Callable[[str, str], float]:
+    """Return sentence chrF++ scorer (0..100) using sacrebleu if installed, else pure-Python chrF."""
+    try:
+        from sacrebleu.metrics import CHRF
+        chrf = CHRF(word_order=2)
+        return lambda hyp, ref: float(chrf.sentence_score(hyp, [ref]).score)
+    except ImportError:
+        from research.decoding import pure_python_chrf
+        return lambda hyp, ref: float(pure_python_chrf(hyp, ref) * 100.0)
+
+
+def mrt_loss(
+    model: nn.Module,
+    src: torch.Tensor,
+    src_mask: Optional[torch.Tensor],
+    refs: Sequence[str],
+    decode_fn: Callable[[List[int]], str],
+    n: int = 6,
+    alpha: float = 5e-3,
+    max_len: int = 100,
+    eps: float = 0.02,
+    grammar: Optional[Any] = None,
+    pad_id: int = 0,
+    bos_id: int = 2,
+    eos_id: int = 3,
+) -> torch.Tensor:
+    """Batched sequence-level Minimum Risk Training (MRT) using KV-cached sampling and chunked CE."""
+    from research.fast_decoding import sample_batched
+
+    chrf_fn = _chrf_score_fn()
+    model.eval()
+    seqs = sample_batched(
+        model,
+        src,
+        src_mask,
+        n=n,
+        max_len=max_len,
+        eps=eps,
+        temperature=1.0,
+        grammar=grammar,
+        pad_id=pad_id,
+        bos_id=bos_id,
+        eos_id=eos_id,
+    )  # (B, n, L)
+
+    batch_size, _, seq_len = seqs.shape
+    cost = torch.empty((batch_size, n), device=src.device, dtype=torch.float32)
+    for b in range(batch_size):
+        for j in range(n):
+            ids = [t for t in seqs[b, j].tolist() if t != pad_id]
+            if eos_id in ids:
+                ids = ids[: ids.index(eos_id)]
+            cost[b, j] = 1.0 - chrf_fn(decode_fn(ids), refs[b]) / 100.0
+
+    tgt_out = seqs.reshape(batch_size * n, seq_len)
+    tgt_in = F.pad(tgt_out[:, :-1], (1, 0), value=bos_id)
+    causal = torch.ones((seq_len, seq_len), dtype=torch.bool, device=src.device).tril()[None, None]
+    sm = src_mask.repeat_interleave(n, 0) if src_mask is not None else None
+
+    with torch.autocast("cuda", dtype=torch.bfloat16, enabled=src.is_cuda):
+        enc = model.encode(src, src_mask).repeat_interleave(n, 0)
+        h = model.decode(enc, sm, tgt_in, causal)
+
+    nll = chunked_cross_entropy(
+        h,
+        model.proj.weight,
+        tgt_out,
+        label_smoothing=0.0,
+        ignore_index=pad_id,
+        reduction="none",
+    )
+    logp = -nll.view(batch_size, n, seq_len).sum(dim=-1)
+    q_dist = torch.softmax(alpha * logp, dim=1)
+    return (q_dist * cost).sum(dim=1).mean()
