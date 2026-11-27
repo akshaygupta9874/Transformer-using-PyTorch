@@ -346,6 +346,15 @@ def _get_memmap_ds(config):
         seed=int(config.get("seed", 13)),
     )
 
+    if config.get("max_train_samples"):
+        max_s = min(int(config["max_train_samples"]), len(full_train))
+        if max_s < len(full_train):
+            print(f"Limiting memmap dataset to {max_s:,} samples (config max_train_samples)...")
+            from torch.utils.data import Subset
+            sliced_lengths = full_train.lengths()[:max_s]
+            full_train = Subset(full_train, range(max_s))
+            full_train.lengths = lambda: sliced_lengths
+
     val_off = memmap_dir / "val.src.off.npy"
     if val_off.exists():
         train_ds = full_train

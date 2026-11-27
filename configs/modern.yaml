@@ -26,6 +26,7 @@ gradient_accumulation_steps: 6 # 4096 * 6 = ~24,576 tokens/step (Transformer-Bas
 dynamic_padding: true
 use_token_bucket_batching: true
 max_tokens_per_batch: 4096  # Optimal sweet spot on 8 GB cards (~3.4 GB VRAM)
+max_train_samples: 1000000  # Explicitly caps training dataset to 10 Lakh pairs
 memmap_dir: "data/memmap/samanantar" # Zero-tokenization binary dataset (auto-falls back if not yet built)
 memmap_src_variants: 2      # 2 offline source Akshara BPE-dropout variants
 memmap_dropout_frac: 0.05   # 5% BPE dropout augmentation per epoch
